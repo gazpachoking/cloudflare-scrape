@@ -25,21 +25,25 @@ def _find_no_duplicates(cj, name, domain=None, path=None):
     return result
 
 
-class CloudflareScraper(Session):
+class CloudflareScraper():
     def __init__(self, *args, **kwargs):
         self.js_engine = kwargs.pop("js_engine", None)
-        super(CloudflareScraper, self).__init__(*args, **kwargs)
+        self.sess = kwargs.pop("sess", None)
+        if not self.sess:
+            self.sess = Session(*args, **kwargs)
+        elif args or kwargs:
+            # You shouldn't pass a session and session init params
 
         if "requests" in self.headers["User-Agent"]:
             # Spoof Firefox on Linux if no custom User-Agent has been set
             self.headers["User-Agent"] = DEFAULT_USER_AGENT
 
     def request(self, method, url, *args, **kwargs):
-        resp = super(CloudflareScraper, self).request(method, url, *args, **kwargs)
+        resp = self.sess.request(method, url, *args, **kwargs)
         domain = url.split("/")[2]
 
         # Check if we already solved a challenge
-        if _find_no_duplicates(self.cookies, "cf_clearance", domain="." + domain):
+        if _find_no_duplicates(self.sess.cookies, "cf_clearance", domain="." + domain):
             return resp
 
         # Check if Cloudflare anti-bot is on
@@ -84,7 +88,7 @@ class CloudflareScraper(Session):
         # Safely evaluate the Javascript expression
         params["jschl_answer"] = str(int(execjs.exec_(js)) + len(domain))
 
-        return self.get(submit_url, **kwargs)
+        return self.sess.get(submit_url, **kwargs)
 
     def extract_js(self, body):
         js = re.search(r"setTimeout\(function\(\){\s+(var "
@@ -117,14 +121,7 @@ def create_scraper(sess=None, js_engine=None):
                                "Please use Node.js, V8, or PyV8. To use a specific engine, "
                                "such as Node, call create_scraper(js_engine=\"Node\")" % js_engine)
 
-    scraper = CloudflareScraper(js_engine=js_engine)
-
-    if sess:
-        attrs = ["auth", "cert", "cookies", "headers", "hooks", "params", "proxies", "data"]
-        for attr in attrs:
-            val = getattr(sess, attr, None)
-            if val:
-                setattr(scraper, attr, val)
+    scraper = CloudflareScraper(sess=sess, js_engine=js_engine)
 
     return scraper
 
